@@ -1,0 +1,237 @@
+---
+always_allow_html: yes
+author: "Lakshman Balaji"
+date: "7/20/2021"
+output:
+  github_document: default
+  always_allow_html: default
+title: "US Droughts"
+---
+
+# Background - the US Droughts dataset
+
+* This week's *tidytuesday* plot was prompted by [this post by the NY Times.](https://www.nytimes.com/interactive/2021/06/11/climate/california-western-drought-map.html)
+* The TidyTuesday Github page has a dataset of droughts at the state level: to use that data, go [here](https://github.com/rfordatascience/tidytuesday) and navigate to the datasets section > year 2021 > week 30. Here is the specific link to this week's [dataset.](https://github.com/rfordatascience/tidytuesday/blob/master/data/2021/2021-07-20/readme.md.)
+* However, I was more interested in the datasets provided by the source, [the US Drought Monitor](https://droughtmonitor.unl.edu/DmData/DataDownload/ComprehensiveStatistics.aspx). 
+* I downloaded, for every week in the last 5 years, a county-level dataset of the percent area in each county considered to be drought-free, and if experiencing drought (which can be classified into one of [five](https://droughtmonitor.unl.edu/About/WhatistheUSDM.aspx) levels), the percent area that falls into each drought level. Note: I prefered to set the _Statistics Type_ to 'Categorical' as opposed to cumulative. If you just want to replicate this analysis though, you don't need to download the data. Just use the .csv that I have included in this repo.
+```{r settings for data, echo = FALSE, fig.cap = "Settings I used for the data pull" }
+
+library(knitr)
+knitr::include_graphics("0_settings_for_data_pull.jpg")
+
+# Added a line to make sure code fits in chunk
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+```
+* My original idea was to sum the percent of land in each county that falls into the **'severe (D2)', 'extreme (D3)', or 'exceptional (D4)'** categories and report that number on a map of the US as a single number — _the percent of land experiencing SEE (severe, extreme, exceptional) drought_ for every week in the last five years (using an animation), but I later cut down this scope to just the last two years (_June 16th 2019 - July 20th 2021) because the script was taking too long to run on my laptop.
+
+## Libraries
+
+Let's get our libraries loaded.
+
+```{r libraries, warning = FALSE, message = FALSE}
+
+# basic libraries
+library(tidyverse)
+library(lubridate)
+library(urbnmapr) # to get county and state boundaries
+library(viridis)
+library(kableExtra)
+
+
+# for animation
+library(gganimate)
+library(gifski)
+#library(devtools)
+#install_github('thomasp85/transformr')
+library(transformr)
+library(Rcpp)
+
+
+```
+
+
+
+# Import data
+
+Read in the .csv from the repo.
+```{r import data}
+
+dat1 <- read.csv("1_dm_export_20150101_20210720.csv")
+
+```
+
+
+# Minor cleaning
+
+* Remove Alaska and Hawaii
+* Add week and year columns
+```{r remove alaska hawaii and add week and year}
+
+# see list of unique states represented in the data pull
+# table(unique(dat1$State))
+# remove non contiguous US: Alaska and Hawaii need to go
+dat1 <- dat1 %>% 
+       filter(!(State %in% c("AK", "HI")))
+# should have 50 states now
+# length(unique(dat1$State)) # 50 states represented in 1.08 million records
+
+
+# Add week and year columns
+dat1 <- dat1 %>%
+        mutate(week      = lubridate::week(as.Date(ValidStart)),
+               year      = lubridate::year(as.Date(ValidStart)),
+               wkyr      = paste0(week, "-", year))
+
+```
+
+* Filter to just the last 2 years' worth of data.
+
+```{r filter to last 2 years worth of data}
+
+dat1 <- dat1 %>% 
+        filter(as.Date(ValidStart) >= as.Date("2019-07-16")) # I wrote this script in July 2021 so chose July 2019 as cut-off
+                                                             # Should have just 334,530 obs
+
+```
+
+
+
+* Add a variable that sums the percent of land area in each country in D2, D2 and D4 drought (hereafter referred to as **SEE drought** for severe, extreme and exceptional drought.)
+* Change the variable that contains the FIPS code (the `FIPS` variable) to match the name and type of the FIPS variable county data that we will import later from `urbnmapr`.
+
+```{r sum areas in d2 d3 d4}
+
+# sum of area in d2, d3, and d4
+dat1 <- dat1 %>%
+        rowwise() %>%
+        mutate(drought.see = sum(c_across(D2:D4))) %>%
+        ungroup() # use ungroup() to exit rowwise() once you are done computing operations by row
+
+
+# To match the urbnmapr county data (to be imported in the next step)
+# Make sure that:
+# FIPS is renamed to county_fips
+# Make sure FIPS has five digits (pad with 0 in the front)
+dat1 <- dat1 %>% 
+        rename(county_fips = FIPS) %>%  
+        mutate(county_fips = as.character(county_fips)) %>%
+        mutate(county_fips = str_pad(county_fips, 5, "left", "0"))
+
+```
+
+* Look at a sample of the data.
+
+```{r glimpse data sample, echo = FALSE}
+
+dat1 %>%
+head() %>%
+select(county_fips, County, State, ValidStart, D2, D3, D4, drought.see) %>%
+kbl(caption = "Sample of data prior to joining county boundaries") %>%
+kable_classic(full_width = F, html_font = "Cambria") 
+
+
+```
+* In the above example, in the first row, for instance, Autauga County, in the week starting on 2021-07-13 (13th July 2021) had 0 percent of its land area classified as D2, 0 percent in D3 and 0 percent in D4. So the `drought.see` variable is 0, indicating that in this week, no part of Autauga Country was experiencing any severe, extreme or exceptional drought.
+
+
+
+# Add county data and states data
+
+* Note: we use the `urbnmapr::` package to add county data. Also load in state data. This chunk could take a long time to run so I recommend increasing memory prior to executing the code.
+
+```{r join county data}
+
+# my current memory size
+memory.size() 
+# check my limit
+memory.limit() 
+# change memory.limit()
+memory.limit(size=56000) 
+
+
+# join county data
+dat1.counties<-  left_join(dat1, 
+                           urbnmapr::counties, 
+                           by = "county_fips")
+# notice this dataset is huge because 
+# for every row in the dat1 dataset,
+# we join something like 50-60 elements (lines)
+# representing the polygon outlines.
+
+# create a states map
+states.map <- urbnmapr::states %>% filter(!(state_name %in% c("Alaska", "Hawaii")))
+
+```
+
+
+# Plot animation
+
+
+* Now, we go ahead and plot the animation. This chunk could take up to 15 minutes to run but the animation at the end is worth it.
+
+```{r plot static figure, eval = FALSE, cache = TRUE, tidy = FALSE}
+
+
+
+anim <-   ggplot(data = dat1.counties) +
+          
+        
+          # County map
+          geom_polygon(data = dat1.counties,
+                       mapping = aes(x = long, y = lat,
+                                     group = group,
+                                     fill = drought.see)) +
+
+          # Add state outlines
+          geom_polygon(data = states.map,
+                       mapping = aes(long, lat,group = group),
+                       fill = NA, color = "#ffffff", size = 0.4) +
+  
+          # color scale
+          scale_fill_viridis(option = "B",
+                             name = "Percent of land area experiencing SEE drought") +
+  
+          # coordinates
+          coord_map(projection = "mercator") +
+
+          # theme
+          theme_minimal() +
+  
+         # other themes
+          theme(
+          legend.position = "bottom",
+          legend.text.align = 0,
+          plot.margin = unit(c(.5,.5,.2,.5), "cm")
+          ) +
+  
+          theme(
+          axis.line = element_blank(),
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          ) +
+  
+         theme(
+         plot.title=element_text(face = "bold")
+          ) +
+  
+          # transition: used the transition manual verb.
+          transition_manual(frames = as.Date(ValidStart)) +
+  
+
+         # title
+         labs(title = "Drought in US Counties",
+              subtitle = paste0("Map shows percent of county land area experiencing \nsevere, extreme or exceptional (SEE) drought in the week of ",                                 "{current_frame}"),
+              caption = "Data source: US Drought Monitor | TidyTuesdays | @LakshmanBalaji9")
+
+
+# Save animation
+# animate(anim, renderer = gifski_renderer("3_usdroughts.gif"))
+
+```
+
+
