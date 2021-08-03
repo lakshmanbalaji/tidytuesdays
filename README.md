@@ -2,11 +2,7 @@
 A repository created for hosting #TidyTuesday visualizations.
 
 
-
 I will be hosting the images that I create from the [tidytuesday challenges](https://github.com/rfordatascience/tidytuesday) here.
-
-
-
 
 # *Week 25, 2021 - DuboisChallenge tweets*
  ![1- week 25, year 2021](https://raw.githubusercontent.com/lakshmanbalaji/tidytuesdays/main/2021-06-15/4figure.png)
@@ -36,5 +32,8 @@ I will be hosting the images that I create from the [tidytuesday challenges](htt
 ![7 - week 31, year 2021](https://raw.githubusercontent.com/lakshmanbalaji/tidytuesdays/main/2021-07-27/2olympicswomenswait.jpg)
 * To see the code for this image, click [here.](https://github.com/lakshmanbalaji/tidytuesdays/blob/main/2021-07-27/1_olympics-week31year2021.md)
 
+# *Week 32, 2021 - Paralympics*
+![8 - week 32, year 2021](https://raw.githubusercontent.com/lakshmanbalaji/tidytuesdays/main/2021-08-03/3circles_staticimage.png)
+* This is just a static image. Download the code from [here](https://github.com/lakshmanbalaji/tidytuesdays/blob/main/2021-08-03/1_paralympics-week32year2021.md) and run to see the interactive widget.
 
 
