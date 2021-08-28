@@ -1,0 +1,366 @@
+---
+always_allow_html: yes
+author: "Lakshman Balaji"
+date: "8/28/2021"
+output:
+  github_document: default
+  always_allow_html: default
+title: "Lemur mortality"
+---
+
+# Background - the Lemurs dataset
+
+* This week's *tidytuesday* plot focuses on lemur data originally from [Zehr et al from the Duke Lemur Center.](https://www.nature.com/articles/sdata201419).
+* The link to the Duke Lemur Center is [here.](https://lemur.duke.edu/)
+* In a nutshell, this data contains information such as lemur date of birth, death, month of conception, number of offspring etc.
+* To learn more about the dataset, please navigate to the [TidyTuesday Github page > year 2021 > week 35.](https://github.com/rfordatascience/tidytuesday/blob/master/data/2021/2021-08-24/readme.md) Many thanks to [Jesse Mostipak](https://www.jessemaegan.com/) for cleaning this data.
+* My goal for this week is to try and see if I can calculate an infant mortality rate for lemurs, and see how that changes over time. The challenges are mainly going to be figuring how to define infant mortality as having occurred, and dealing with missingness in date of birth/date of death. The visualization this week is a very simple one.
+
+
+```{r libraries, message = FALSE, results='hide', warning = FALSE}
+
+library(tidytuesdayR)
+library(tidyverse)
+library(kableExtra) # print table outputs
+library(lubridate)  # calculate age of lemurs
+
+```
+
+
+```{r making sure chunks print in entirety, echo = FALSE}
+
+# Added a line to make sure code fits in chunk
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+
+```
+
+
+* This is week 35, year 2021 data.
+
+```{r import data, message = FALSE, results='hide', warning = FALSE}
+
+
+dat <- tidytuesdayR::tt_load(2021, week = 35)
+lemurs <- dat$lemur_data
+taxon <- dat$taxonomy
+# alternatively
+# lemurs <- readRDS("0_lemurs")
+# taxon <- readRDS("0_taxon")
+rm(dat)
+
+```
+
+
+# Subset to the Duke Lemur Center
+
+* We do this because a good 80 percent of the data is just from this one site (~64k records)
+
+```{r subset to duke}
+
+# most data is from duke
+lemurs %>%
+group_by(birth_institution) %>%
+summarize(n = n(), percent = round(n()/nrow(lemurs)*100, 2)) %>%
+arrange(-n)
+# create the duke subset
+duke <- lemurs %>% filter(birth_institution == "Duke Lemur Center")
+
+```
+
+## Remove duplicates
+
+* Notice that this is longitudinal data, as mentioned in the Nature paper.
+* I will keep only the most recent record for each lemur.
+* I will do this by taking advantage of the fact that each animal has a date on which it was weighed. This date has zero missingness. I will sort by `dlc_id` and `weight_date`, and then pick the highest `weight_date` within `dlc_id`.
+* I enjoyed adding this footnote to the table. Many thanks to [Hao Zhu](https://haozhu233.github.io/kableExtra/awesome_table_in_html.html) for his vignette on using `knitr::kable` and `kableExtra`.
+
+```{r remove duplicates from duke}
+
+# notice duplicates
+duke %>%
+filter(dlc_id == "0009") %>%
+select(dlc_id, name, dob, sire_name, weight_date, weight_g)%>%
+kable() %>%
+footnote(general = "Pooh bear seems to be losing weight",
+         footnote_as_chunk = T)
+
+
+
+# remove duplicates, ensure that most
+# recent entry is retained
+duke <- duke %>%
+        group_by(dlc_id) %>%
+        arrange(dlc_id, weight_date) %>%
+        mutate(weighingnum = row_number()) %>%
+        filter(weighingnum == max(weighingnum)) %>%
+        ungroup()
+
+
+nrow(duke)
+
+```
+
+* After removing duplicates, we have a little under 2k unique individuals represented from the Duke Lemur Center.
+
+
+# Looking at death.
+
+* How many lemurs at the Duke Lemur Center have a date of death?
+
+```{r how many miss date of death}
+
+sum(!(is.na(duke$dod)))
+
+```
+
+* This tells us that `r round(100*(sum(!(is.na(duke$dod)))/nrow(duke)), 1)`% of the lemurs at Duke have been confirmed to have died. We could easily calculate an infant mortality rate from this data. However, the complication is in the way the `dod` date of death variable is defined. On the TidyTuesday github page, it says [this](Date of death: Verified date an animal died. Missing indicates animal is either alive or status is unknown) in the data dictionary: _"Date of death: Verified date an animal died. Missing indicates animal is either alive or status is unknown."_
+* That still leaves n = 715 (around 38% of the lemurs at Duke) that could either be alive, or could be dead and the death was not recorded.
+* If the animal died and the death was not recorded, we would have an inaccurate picture of the infant mortality rate in lemurs. 
+* I am going to try to fix this by looking at another variable in the data, the `age_last_verified_y`. This variable tells us the age that the animal's age was last verified. This could be useful to calculate infant mortality because we would now know to what age the animal lived, at the least.
+* Additionally, to add to the information provided by `age_last_verified_y`, I am going to create a new variable called `age_last_verified_lb` (the 'lb' suffix signifies that this variable was added by me, as opposed to the variable already in the dataset), which will be the difference between the `dob` and `weight_date`.
+* We are basically taking advantage of the fact that each record in the `duke` dataset is the most recent weighing for the lemur. 
+* So, if `age_last_verified_y` is missing for an animal that doesn't have a `dod`, we can use `age_last_verified_lb` to figure out the minimum age to which we know the animal lived for sure.
+
+
+## For lemurs at Duke with missing dates of death, figure out how long the animal lived for.
+
+* Let's see when the dates of birth were.
+```{r dobs for missing date of death}
+
+# all the duke animals that are missing a date of death are now represented 
+# in the dataset mysterylemurs
+mysterylemurs <- duke %>% filter(is.na(duke$dod)) 
+
+# date-of-birth missigness for these mystery lemurs: none seem to be missing a date-of-birth
+sum(is.na(mysterylemurs$dob)) 
+
+```
+
+* For these lemurs with missing dates of death, look at the `age_last_verified_y`, and also prepare a `age_last_verified_lb` variable that is calculated by subtracting `dob` from `weight_date`.
+
+``` {r minimum age lived up to}
+
+mysterylemurs <- mysterylemurs %>%
+                  mutate(age_last_verified_lb = interval(dob, weight_date)/years(1)) %>%
+                  select(dlc_id, name, dob, weight_date, age_last_verified_y, age_last_verified_lb)
+
+
+```
+
+
+* Now, this is interesting. Notice that for any lemur that has a missing `age_last_verified_y`, we have the `age_last_verified_lb` variable that tells us how old the animal was on its most recent weighing.
+
+```{r view support provided by the additional age verified variable}
+
+set.seed(1234)
+
+mysterylemurs %>%
+filter(is.na(age_last_verified_y)) %>%
+filter(row_number() %in% sample(1:nrow(.), size = 10)) %>%
+kable() %>%
+footnote(general = "For example, we now know that Gordian lived to atleast 23 years of age, and didn't die as an infant.",
+         footnote_as_chunk = TRUE)
+
+
+```
+
+
+# Define infant mortality.
+
+* This paper, [Lifespan and Reproductive Senescene in a Free-Ranging Ring Tailed Lemur Population at Berenty, Madagascar ](https://www.karger.com/article/FullText/368670) by _Ichini et al_ in Folia Primatologica found that "The 1-year mortality rate (from birth to 1 year old) was 26.0%"
+* I am no expert on lemurs, but I do know that this likely differs by lemur species. But, for the sake of simplicity, I will assume one-year as the cut-off to define if infant mortality has occured.
+* The average last verified age of all the Duke Lemurs (regardless of whether date of death was missing or not) was `r mean(duke$age_last_verified_y, na.rm = TRUE)`
+* So, here's the plan—
+    * For a lemur with a missing date-of-death, if the last known age was greater than 1, then that lemur did not experience infant mortality.
+    * For a lemur with a missing date-of-death, and the last known age lesser than 1, if the date of birth was before 2010 (2019 - the average age of all lemurs in the dataset), then I assume the lemur experienced infant mortality.
+    * For a lemur with a missing date-of-death, and the last known age lesser than 1, if the date of birth was after 2010, then I assume that lemur is still alive and simply hasn't been weighed in the last ~9 years.
+
+
+## Determine infant mortality for lemurs with a missing date-of-death.
+
+```{r infant mortality for lemurs with a missing date of death round one}
+
+
+mysterylemurs <- mysterylemurs %>%
+                                          # if the age_last_verified_y column is present and indicates
+                                          # a verified age > 0, then the lemur did not experience 
+                                          # infant mortality
+                 mutate(infantmortality = ifelse(!(is.na(age_last_verified_y)) & age_last_verified_y > 1, 0,
+                                          # if the age_last_verified_y column is missing, and 
+                                          # the back-up column (age_last_verified_lb) indicates an age 
+                                          # greater than 1 on last weigh-in, then the lemur did not 
+                                          # experience infant mortality
+                                          ifelse((is.na(age_last_verified_y)) & age_last_verified_lb > 1, 0,
+                                          # if the age_last_verified_y column is present and shows
+                                          # an age < 1, or if the age_last_verified_y column is absent
+                                          # and the age_last_verified_lb shows an age < 1, then tag
+                                          # these lemurs with a 2
+                                                                                                        2)))
+
+table(mysterylemurs$infantmortality)
+
+```
+
+
+* It looks like $\frac{675}{715}$ lemurs with missing dates of death were classified as not having experienced infant mortality.
+* Only $\frac{40}{715}$ lemurs with missing dates of death were flagged for further review with a 2.
+* Here's a sample of the `mysterylemurs` dataset.
+
+```{r glimpse mystery lemurs}
+
+mysterylemurs %>%
+filter(row_number() %in% 93:96) %>%
+kable() %>%
+footnote(general = "Demas and Parmena are lemurs that we know for sure survived beyond the age of one. But we need to look at Tychicus and Carpus closer",
+         footnote_as_chunk = TRUE)
+
+
+```
+* Now, look at Tychicus. Tychicus is missing a date of death. The last verified age was when Tychicus was a little under a year old (last weigh-in was a little after 6 months).
+* But Tychicus' date of birth was July 1985! 
+* Since this script is being written in 2021, and since if there had been any more recent weigh-ins, we would have extracted those datapoints, I can only assume that Tychicus hasn't ever been weighed since the mid 1980s. I am going to assume that this has happened because Tychicus died soon after that first data point was collected, and I am going to assign him (and Carpus, who is similar to him) with a 1 for infant mortality. In fact, I will do this for all lemurs whose date of birth was prior to 2010.
+* This method does have its drawbacks and could be overestimating infant mortality (Tychicus could have been weighed and the data not entered, Tychicus could have survived to age 3 or 4 and died right before his next scheduled weighing, Tychicus could have been transferred to another Lemur Conservation Center etc.), but I just want a rough approximation of infant mortality for this visualization and so this will do. There is no way to approach the truth without having complete `dod` data.
+
+
+```{r infant mortality for lemurs with a missing date of death round two}
+
+mysterylemurs <- mysterylemurs %>%
+                 # set infant mortality to 1 for all lemurs with a missing date of death and
+                 # with last verified age < 1 and DOB prior to 2010.
+                 mutate(infantmortality = ifelse(infantmortality == 2 & lubridate::year(dob) < 2010,  1,
+                # set infant mortality to 0 for all lemurs with a missing date of death, with
+                # last verified age < 1 and DOB in or after 2010.
+                                          ifelse(infantmortality == 2 & lubridate::year(dob) >= 2010, 0,   
+                                                 infantmortality)))
+
+
+```
+
+
+## Determine infant mortality for lemurs with a non-missing date-of-death.
+
+* This is straightforward. We just pull out the lemurs with a non-missing `dod` from the `duke` dataset and calculate their age at death. If it was greater than 1, we assign a 0 to `infantmortality`. If it was lesser than 1, we assign a 1 to `infantmortality`.
+
+
+```{r infant mortality for lemurs with non missing dod}
+
+
+# notice one lemur with a non-missing date of death
+# has a missing dob and has absolutely no age data
+ duke %>%
+ filter(!is.na(dod)) %>%
+ filter(is.na(dob)) %>%
+ select(dlc_id, name, age_last_verified_y)
+
+nonmysterylemurs <- duke %>%
+                    # remove one lemur with a missing DOB
+                    filter(!(dlc_id == 7014)) %>%
+                    filter(!(is.na(dod))) %>%
+                    mutate(ageatdeath = interval(dob, dod)/years(1)) %>%
+                    mutate(infantmortality = ifelse(ageatdeath > 1, 0, 1)) %>%
+                    select(dlc_id, name, dob, infantmortality)
+
+
+
+```
+
+
+
+## Combine both datasets (lemurs with missing date of death and non-missing date of death)
+
+```{r combine both mystery and nonmystery lemur datasets}
+
+dukemortality <- rbind(nonmysterylemurs,
+                        mysterylemurs[, c("dlc_id", "name", "dob", "infantmortality")])
+
+# get rid of clutter
+rm(mysterylemurs, nonmysterylemurs)
+
+```
+
+
+# Look at infant mortality.
+
+```{r overall infant mortality stats}
+
+dukemortality %>%
+group_by(infantmortality) %>%
+summarize(n = n(), prop = round(100*n/1898, 2))
+
+
+
+
+```
+
+
+* The infant mortality rate in this Duke Lemur Center dataset is around *14%*
+* Does it change at all over the years? If so, how?
+
+## Infant mortality over the years
+
+* Here, we define the year as the year in which the lemur was born.
+* For each five-year cohort, we find out what the mortality rate was.
+```{r infant mortality over the years}
+
+# prep data
+dukemortality <- dukemortality %>%
+                 mutate(year = lubridate::year(dob)) %>%
+                 # 1960-1964 is yearcohort 1
+                 # 1965-1969 is yearcohort 2..
+                 # ....
+                 # 2015-2020 is yearcohort 3
+                 mutate(yearcohort = findInterval(year, seq(1960, 2020, 5)))
+                 
+# prep data some more
+dukemortsum <- dukemortality %>%
+               group_by(yearcohort) %>%
+               summarize(mortality = sum(infantmortality)/n(),
+                         ninfantdeaths = sum(infantmortality),
+                         nlemurs = n())
+
+# View data
+dukemortsum %>%
+kable() %>%
+footnote(general = "We don't see a clear pattern in mortality",
+         footnote_as_chunk = TRUE)
+
+```
+
+## A simple ggplot visualization
+
+
+* Though looking at the figure below may tempt one to conclude that mortality is increasing, please bear in mind that we have data from only 8 lemurs in the 1960-1964 period, and only 18 lemurs in the 1965-1969 period. The infant mortality rates from the 1960s are perhaps not representative of the true mortality at Duke Lemur center. Also, this is just a simple representation of proportions that does not account for changes happening at Duke Lemur Center.
+* All we can say is that infant mortality rate hovers between 10-20 percent for each five-year period from 1960 upto 2018.
+
+
+```{r Infant mortality}
+
+p <- ggplot(data = dukemortsum,
+       aes(x = yearcohort,
+           y = mortality*100)) +
+geom_point(color = "white", size = 1.5) +
+geom_line(color = "white", size = 0.9, alpha = 0.75) +
+scale_x_continuous(breaks = c(1:12),
+                   labels = c(as.character(seq(1960, 2020, 5))[1:12])) +
+theme_classic() +
+theme(panel.background = element_rect(fill = "#916d6a", color = "#916d6a"),
+      plot.background = element_rect(fill = "#916d6a", color = "#916d6a"),
+      axis.title = element_text(color = "white"),
+      axis.text = element_text(color = "white"),
+      axis.ticks = element_line(color = "white"),
+      axis.line = element_line(color = "white"),
+      plot.title = element_text(color = "white"),
+      plot.subtitle = element_text(color = "white"),
+      plot.caption = element_text(color = "white")) +
+labs(x = "Five-year period",
+     y = "Infant mortality rate (%)",
+     title = "Infant mortality rate in lemurs.",
+     subtitle = "Mortality defined as death < 1 year",
+     caption = "Date from 1,897 individuals from the Duke Lemur Center | TidyTuesday | @LakshmanBalaji9")
+
+ggsave("2_mortalityrateinlemurs.png", p, width = 7.59, height = 5.73)
+
+```
+
+
+
