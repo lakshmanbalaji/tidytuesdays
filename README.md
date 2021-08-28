@@ -36,4 +36,7 @@ I will be hosting the images that I create from the [tidytuesday challenges](htt
 ![8 - week 32, year 2021](https://raw.githubusercontent.com/lakshmanbalaji/tidytuesdays/main/2021-08-03/3circles_staticimage.png)
 * This is just a static image. Download the code from [here](https://github.com/lakshmanbalaji/tidytuesdays/blob/main/2021-08-03/1_paralympics-week32year2021.md) and run to see the interactive widget.
 
+# *Week 35, 2021 - Lemur mortality*
+![9 - week 35, year 2021](https://raw.githubusercontent.com/lakshmanbalaji/tidytuesdays/main/2021-08-24/2_mortalityrateinlemurs.png)
+* To see the code for this image, click [here.](https://github.com/lakshmanbalaji/tidytuesdays/blob/main/2021-08-24/1_lemurs-week35year2021.md)
 
