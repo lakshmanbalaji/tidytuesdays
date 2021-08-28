@@ -21,7 +21,8 @@ Lakshman Balaji
     mortality rate for lemurs, and see how that changes over time. The
     challenges are mainly going to be figuring how to define infant
     mortality as having occurred, and dealing with missingness in date
-    of birth/date of death.
+    of birth/date of death. The visualization this week is a very simple
+    one.
 
 <!-- end list -->
 
@@ -1714,13 +1715,31 @@ a clear pattern in mortality
 
 ## A simple ggplot visualization
 
-``` r
-ggplot(data = dukemortsum, aes(x = yearcohort, y = mortality *
-    100)) + geom_point() + geom_line() + scale_x_continuous(breaks = c(1:12),
-    labels = c(as.character(seq(1960, 2020, 5))[1:12])) + theme_bw() +
-    labs(x = "Five-year period", y = "Infant mortality rate (%)",
-        title = "Infant mortality rate in lemurs.", subtitle = "Mortality defined as death < 1 year",
-        caption = "Date from 1897 individuals from the Duke Lemur Center | TidyTuesday | @LakshmanBalaji9")
-```
+  - Though looking at the figure below may tempt one to conclude that
+    mortality is increasing, please bear in mind that we have data from
+    only 8 lemurs in the 1960-1964 period, and only 18 lemurs in the
+    1965-1969 period. The infant mortality rates from the 1960s are
+    perhaps not representative of the true mortality at Duke Lemur
+    center. Also, this is just a simple representation of proportions
+    that does not account for changes happening at Duke Lemur Center.
+  - All we can say is that infant mortality rate hovers between 10-20
+    percent for each five-year period from 1960 upto 2018.
 
-![](1_lemurs-week35year2021_files/figure-gfm/Infant%20mortality-1.png)<!-- -->
+<!-- end list -->
+
+``` r
+p <- ggplot(data = dukemortsum, aes(x = yearcohort, y = mortality *
+    100)) + geom_point(color = "white", size = 1.5) + geom_line(color = "white",
+    size = 0.9, alpha = 0.75) + scale_x_continuous(breaks = c(1:12),
+    labels = c(as.character(seq(1960, 2020, 5))[1:12])) + theme_classic() +
+    theme(panel.background = element_rect(fill = "#916d6a", color = "#916d6a"),
+        plot.background = element_rect(fill = "#916d6a", color = "#916d6a"),
+        axis.title = element_text(color = "white"), axis.text = element_text(color = "white"),
+        axis.ticks = element_line(color = "white"), axis.line = element_line(color = "white"),
+        plot.title = element_text(color = "white"), plot.subtitle = element_text(color = "white"),
+        plot.caption = element_text(color = "white")) + labs(x = "Five-year period",
+    y = "Infant mortality rate (%)", title = "Infant mortality rate in lemurs.",
+    subtitle = "Mortality defined as death < 1 year", caption = "Date from 1,897 individuals from the Duke Lemur Center | TidyTuesday | @LakshmanBalaji9")
+
+ggsave("2_mortalityrateinlemurs.png", p, width = 7.59, height = 5.73)
+```
