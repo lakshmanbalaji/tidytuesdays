@@ -1,0 +1,155 @@
+---
+always_allow_html: yes
+author: "Lakshman Balaji"
+date: "10/26/2021"
+output:
+  github_document: default
+  always_allow_html: default
+title: "Ultratrail running"
+---
+
+# Background - the Ultratrail running dataset
+
+
+```{r results = 'hide'}
+
+library(tidyverse)
+library(tidytuesdayR)
+library(lubridate)
+library(scales)
+
+# read in data manually
+ultra_rankings <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-10-26/ultra_rankings.csv')
+race <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-10-26/race.csv')
+
+# save these
+# readr::write_csv(ultra_rankings, "0ultra_rankings.csv")
+# readr::write_csv(race, "0race.csv")
+
+```
+
+
+
+```{r}
+
+# correlation between age and time in seconds
+
+# all first rankers
+temp <- ultra_rankings %>% filter(rank == 1)
+length(unique(temp$race_year_id))
+# 1200 unique races represented in this dataset of 1237 first rankers
+
+# Join with race dataset to get distances
+temp <- temp %>%
+left_join(race[, c("race_year_id", "date", "distance", "country")], by = "race_year_id") %>%
+mutate(raceyear = lubridate::year(date))
+
+# distances vary widely
+hist(temp$distance, breaks= 50)
+
+
+# age of winners over the years
+winnerages <- temp %>% 
+group_by(raceyear, gender) %>%
+summarize(meanwinnerage = mean(age))
+
+winnerages$gender <- factor(winnerages$gender, levels = c("M", "W"))
+
+ggplot(data = winnerages,
+       aes(x = raceyear, y = meanwinnerage, col = gender)) +
+  geom_line() +
+  geom_point()
+
+
+# see if we can do a diverging bar chart for ages of winners over the years.
+# data prep for this in the next chunk
+
+
+```
+
+
+```{r}
+
+# diverging bar chart esque distribution of ages of race winners for men and women
+# start with the temp dataset and make a copy
+
+tempcop <- temp
+
+# We want women's ages to be multiplied by 1
+tempcop$age <- ifelse(tempcop$gender == "W", (-1)*tempcop$age, tempcop$age)
+# change gender to factor
+tempcop$gender <- factor(tempcop$gender, levels = c("M", "W"))
+# Y axis will have years
+# Change them to numbers 1 for newest year (2021) and 10 for oldest (2012)
+# remember to pull out only unique years or R will assign ties
+temprank <- data.frame(uniqueraceyear = unique(tempcop$raceyear),
+                       raceyearrank = rank(unique(-tempcop$raceyear)))
+tempcop <- merge(tempcop, temprank, by.x = "raceyear", by.y = "uniqueraceyear", all.x = TRUE)
+
+
+# let's do a temp plot, its gonna look horrible
+ggplot(data = tempcop, 
+       aes(x = age, y = raceyear, col = gender)) +
+geom_point()
+# Notice two folks have age specified as 0
+which(tempcop$age<10 & tempcop$age >= 0)
+# drop them
+tempcop <- tempcop %>% filter(!(age == 0))
+# plot again
+ggplot(data = tempcop, 
+       aes(x = age, y = raceyear, col = gender)) +
+geom_jitter()
+
+# change the direction of y axis by using raceyearrank
+ggplot(data = tempcop, 
+       aes(x = age, y = raceyearrank, col = gender)) +
+geom_point() +
+scale_y_continuous(breaks = 1:10,
+                   labels = sort(unique(tempcop$raceyear), decreasing = TRUE))
+
+# Add jitter
+ggplot(data = tempcop, 
+       aes(x = age, y = raceyearrank, col = gender)) +
+geom_jitter(width = 0, height = 0.1) +
+scale_y_continuous(breaks = 1:10,
+                   labels = sort(unique(tempcop$raceyear), decreasing = TRUE))
+
+# add alpha
+ggplot(data = tempcop, 
+       aes(x = age, y = raceyearrank, col = gender)) +
+geom_jitter(width = 0, height = 0.1, alpha = 0.5) +
+scale_y_continuous(breaks = 1:10,
+                   labels = sort(unique(tempcop$raceyear), decreasing = TRUE)) 
+
+# could leave it here or may do some kind of axes fiddling to get rid of dead space
+# change x axis
+ggplot(data = tempcop, 
+       aes(x = age, y = raceyearrank, col = gender)) +
+geom_jitter(width = 0, height = 0.1, alpha = 0.5) +
+scale_y_continuous(breaks = 1:10,
+                   labels = sort(unique(tempcop$raceyear), decreasing = TRUE)) +
+scale_x_continuous(breaks = c(-20, 20), labels= c("40", "40"))
+# doesnt seem to work very well
+# to normalize
+tempcop$scaledage <- rescale(tempcop$age, to=c(-5,5))
+ggplot(data = tempcop, 
+       aes(x = scaledage, y = raceyearrank, col = gender)) +
+geom_jitter(width = 0, height = 0.1, alpha = 0.5) +
+scale_y_continuous(breaks = 1:10,
+                   labels = sort(unique(tempcop$raceyear), decreasing = TRUE)) 
+# doesnt fix the problem
+# either learn to live with the gap or alter the data itself
+
+
+
+# aesthetic tweaking
+ggplot(data = tempcop, 
+       aes(x = age, y = raceyearrank, col = gender)) +
+geom_jitter(width = 0, height = 0.1, alpha = 0.5) +
+scale_y_continuous(breaks = 1:10,
+                   labels = sort(unique(tempcop$raceyear), decreasing = TRUE)) 
+
+
+  
+```
+
