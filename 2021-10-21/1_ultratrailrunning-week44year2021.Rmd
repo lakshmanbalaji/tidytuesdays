@@ -17,6 +17,7 @@ library(tidyverse)
 library(tidytuesdayR)
 library(lubridate)
 library(scales)
+library(ggdark)
 
 # read in data manually
 ultra_rankings <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-10-26/ultra_rankings.csv')
@@ -143,13 +144,17 @@ scale_y_continuous(breaks = 1:10,
 
 
 # aesthetic tweaking
-ggplot(data = tempcop, 
+p1 <- ggplot(data = tempcop, 
        aes(x = age, y = raceyearrank, col = gender)) +
-geom_jitter(width = 0, height = 0.1, alpha = 0.5) +
+geom_jitter(width = 0, height = 0.1, alpha = 0.5, show.legend = FALSE) +
 scale_y_continuous(breaks = 1:10,
-                   labels = sort(unique(tempcop$raceyear), decreasing = TRUE)) 
+                   labels = sort(unique(tempcop$raceyear), decreasing = TRUE)) +
+scale_color_manual(breaks = c("M", "W"), values = c("#fde725ff", "#eb8055ff"))
 
+# more tweaking
+p1 +   
+dark_theme_gray() +
+labs(x = "Age", y = " Year", title = "Ages of first rank holders in ultramarathons by years")
 
-  
 ```
 
